@@ -4,9 +4,13 @@ This project implements a closed-loop PID control system to regulate the speed o
 
 ⚙️ Features
 Closed-loop speed control using PID algorithm
+
 Real-time encoder feedback for accurate speed measurement
+
 PWM-based motor control for smooth operation
+
 PID tuning to minimize overshoot and settling time
+
 Performance analysis of system response
 
 🛠️ Technologies Used
