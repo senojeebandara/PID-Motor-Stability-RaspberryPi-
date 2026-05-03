@@ -14,10 +14,15 @@ PID tuning to minimize overshoot and settling time
 Performance analysis of system response
 
 🛠️ Technologies Used
+
 Raspberry Pi
+
 Python
+
 PWM motor control
+
 Encoder interface
+
 Control systems (PID)
 
 📊 System Working
