@@ -1,4 +1,4 @@
-Project Overview
+📌 Project Overview
 
 This project implements a closed-loop PID control system to regulate the speed of a DC motor using a Raspberry Pi. The system uses encoder feedback to continuously monitor motor speed and adjust the PWM signal in real time, ensuring stable and accurate performance.
 
@@ -8,12 +8,14 @@ Real-time encoder feedback for accurate speed measurement
 PWM-based motor control for smooth operation
 PID tuning to minimize overshoot and settling time
 Performance analysis of system response
+
 🛠️ Technologies Used
 Raspberry Pi
 Python
 PWM motor control
 Encoder interface
 Control systems (PID)
+
 📊 System Working
 
 The encoder measures the motor speed and sends feedback to the controller.
