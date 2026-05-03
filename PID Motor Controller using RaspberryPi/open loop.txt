@@ -1,0 +1,175 @@
+import RPi.GPIO as GPIO
+import time
+import csv
+import matplotlib.pyplot as plt
+
+ENA = 13
+IN1 = 6
+IN2 = 5
+
+ENCODER_A = 17
+ENCODER_B = 27
+
+PWM_FREQUENCY = 1000
+
+PULSES_PER_REVOLUTION = 11
+GEAR_RATIO = 45
+COUNTS_PER_REVOLUTION = PULSES_PER_REVOLUTION * GEAR_RATIO
+
+SAMPLE_TIME = 0.1
+TEST_DURATION = 8
+STOP_TIME_BETWEEN_TESTS = 2
+
+PWM_TEST_VALUES = [20, 30, 40, 50, 60, 70]
+
+CSV_FILE = "open_loop_all_in_one.csv"
+GRAPH_FILE = "open_loop_all_in_one.png"
+
+pulse_count = 0
+
+
+def encoder_callback(channel):
+    global pulse_count
+    pulse_count += 1
+
+
+def setup_gpio():
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setwarnings(False)
+
+    GPIO.setup(ENA, GPIO.OUT)
+    GPIO.setup(IN1, GPIO.OUT)
+    GPIO.setup(IN2, GPIO.OUT)
+
+    GPIO.setup(ENCODER_A, GPIO.IN)
+    GPIO.setup(ENCODER_B, GPIO.IN)
+
+    GPIO.add_event_detect(ENCODER_A, GPIO.RISING, callback=encoder_callback)
+
+    pwm = GPIO.PWM(ENA, PWM_FREQUENCY)
+    pwm.start(0)
+
+    return pwm
+
+
+def motor_forward():
+    GPIO.output(IN1, GPIO.HIGH)
+    GPIO.output(IN2, GPIO.LOW)
+
+
+def motor_stop(pwm):
+    pwm.ChangeDutyCycle(0)
+    GPIO.output(IN1, GPIO.LOW)
+    GPIO.output(IN2, GPIO.LOW)
+
+
+def calculate_rpm(pulses, dt):
+    revolutions = pulses / COUNTS_PER_REVOLUTION
+    rpm = revolutions * (60 / dt)
+    return rpm
+
+
+def generate_combined_graph(all_test_data):
+    plt.figure(figsize=(10, 6))
+
+    for pwm_value, data in all_test_data.items():
+        plt.plot(data["times"], data["rpms"], label=f"{pwm_value}% PWM")
+
+    plt.xlabel("Time (seconds)")
+    plt.ylabel("Measured RPM")
+    plt.title("Open-Loop Test - JGA25-370 130 RPM Motor")
+    plt.legend()
+    plt.grid(True)
+
+    plt.savefig(GRAPH_FILE)
+    plt.show()
+
+    print(f"Graph saved as: {GRAPH_FILE}")
+
+
+def run_open_loop_tests():
+    global pulse_count
+
+    pwm = setup_gpio()
+    motor_forward()
+
+    all_test_data = {}
+
+    print("Open-loop test started")
+    print("Motor: JGA25-370 130 RPM")
+    print("Testing PWM values:", PWM_TEST_VALUES)
+    print("Press Ctrl+C to stop")
+
+    with open(CSV_FILE, "w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(["pwm_value", "time", "measured_rpm"])
+
+        try:
+            for pwm_value in PWM_TEST_VALUES:
+                print(f"\nTesting PWM = {pwm_value}%")
+
+                pulse_count = 0
+                pwm.ChangeDutyCycle(pwm_value)
+
+                start_time = time.time()
+                previous_time = start_time
+
+                times = []
+                rpms = []
+
+                while True:
+                    current_time = time.time()
+                    elapsed_time = current_time - start_time
+                    dt = current_time - previous_time
+
+                    if elapsed_time >= TEST_DURATION:
+                        break
+
+                    if dt >= SAMPLE_TIME:
+                        pulses = pulse_count
+                        pulse_count = 0
+
+                        measured_rpm = calculate_rpm(pulses, dt)
+
+                        writer.writerow([
+                            pwm_value,
+                            round(elapsed_time, 2),
+                            round(measured_rpm, 2)
+                        ])
+
+                        times.append(elapsed_time)
+                        rpms.append(measured_rpm)
+
+                        print(
+                            f"PWM: {pwm_value}% | "
+                            f"Time: {elapsed_time:.2f}s | "
+                            f"RPM: {measured_rpm:.2f}"
+                        )
+
+                        previous_time = current_time
+
+                all_test_data[pwm_value] = {
+                    "times": times,
+                    "rpms": rpms
+                }
+
+                print("Stopping before next PWM value")
+                motor_stop(pwm)
+                time.sleep(STOP_TIME_BETWEEN_TESTS)
+                motor_forward()
+
+        except KeyboardInterrupt:
+            print("\nStopped by user")
+
+        finally:
+            motor_stop(pwm)
+            pwm.stop()
+            GPIO.cleanup()
+            print("\nMotor stopped")
+            print(f"CSV saved as: {CSV_FILE}")
+
+    generate_combined_graph(all_test_data)
+
+
+if __name__ == "__main__":
+    run_open_loop_tests()

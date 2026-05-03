@@ -1,0 +1,181 @@
+import RPi.GPIO as GPIO
+import time
+import csv
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# =========================
+# GPIO PINS
+# =========================
+ENA = 13
+IN1 = 6
+IN2 = 5
+ENC_A = 17
+ENC_B = 27
+
+# =========================
+# PID VALUES
+# =========================
+Kp = 0.10
+Ki = 0.075
+Kd = 0.035
+
+SETPOINT = 1600
+TEST_DURATION = 10
+SAMPLE_TIME = 0.1
+
+PWM_MIN = 25
+PWM_MAX = 100
+
+filename = f"/home/pi/Desktop/pid_final_Kp{Kp}_Ki{Ki}_Kd{Kd}.csv"
+plot_file = f"/home/pi/Desktop/pid_final_step_response.png"
+
+# =========================
+# VARIABLES
+# =========================
+encoder_count = 0
+last_count = 0
+integral = 0
+last_error = 0
+
+
+def encoder_callback(channel):
+    global encoder_count
+    encoder_count += 1
+
+
+# =========================
+# GPIO SETUP
+# =========================
+GPIO.setmode(GPIO.BCM)
+GPIO.setwarnings(False)
+
+GPIO.setup(ENA, GPIO.OUT)
+GPIO.setup(IN1, GPIO.OUT)
+GPIO.setup(IN2, GPIO.OUT)
+
+GPIO.setup(ENC_A, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+GPIO.setup(ENC_B, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+
+GPIO.add_event_detect(ENC_A, GPIO.BOTH, callback=encoder_callback)
+
+pwm = GPIO.PWM(ENA, 100)
+pwm.start(0)
+
+# =========================
+# CSV SETUP
+# =========================
+log_file = open(filename, "w", newline="")
+writer = csv.writer(log_file)
+
+writer.writerow([
+    "time",
+    "setpoint",
+    "speed_pulses_per_sec",
+    "error",
+    "pwm"
+])
+
+try:
+    print("Running final PID test...")
+
+    # Forward direction only
+    GPIO.output(IN1, GPIO.HIGH)
+    GPIO.output(IN2, GPIO.LOW)
+
+    start_time = time.time()
+
+    while True:
+        time.sleep(SAMPLE_TIME)
+
+        current_time = time.time() - start_time
+
+        if current_time >= TEST_DURATION:
+            break
+
+        current_count = encoder_count
+        pulses = current_count - last_count
+        last_count = current_count
+
+        speed = abs(pulses) / SAMPLE_TIME
+
+        error = SETPOINT - speed
+        integral += error * SAMPLE_TIME
+
+        derivative = (error - last_error) / SAMPLE_TIME
+
+        # derivative noise limiting
+        derivative = max(min(derivative, 500), -500)
+
+        output = (Kp * error) + (Ki * integral) + (Kd * derivative)
+
+        # PWM limiting
+        if output > PWM_MAX:
+            output = PWM_MAX
+            integral -= error * SAMPLE_TIME
+        elif output < PWM_MIN:
+            output = PWM_MIN
+
+        pwm.ChangeDutyCycle(output)
+        last_error = error
+
+        writer.writerow([
+            round(current_time, 3),
+            SETPOINT,
+            round(speed, 3),
+            round(error, 3),
+            round(output, 3)
+        ])
+
+        print(
+            f"t={current_time:.2f}s | "
+            f"speed={speed:.1f} | "
+            f"error={error:.1f} | "
+            f"pwm={output:.1f}"
+        )
+
+except KeyboardInterrupt:
+    print("Stopped by user")
+
+finally:
+    print("Stopping motor...")
+
+    pwm.ChangeDutyCycle(0)
+    GPIO.output(IN1, GPIO.LOW)
+    GPIO.output(IN2, GPIO.LOW)
+
+    pwm.stop()
+    GPIO.cleanup()
+    log_file.close()
+
+# =========================
+# PLOT SECTION
+# =========================
+print("Generating smooth step-response graph...")
+
+data = pd.read_csv(filename)
+
+time_data = data["time"]
+speed_data = data["speed_pulses_per_sec"]
+
+# smoothing for report-quality graph
+smooth_speed = speed_data.rolling(window=5, min_periods=1).mean()
+
+plt.figure(figsize=(7, 4))
+
+plt.plot(time_data, smooth_speed, linewidth=2, label="Motor Speed")
+plt.axhline(y=SETPOINT, linestyle="--", color="r", label="Setpoint")
+
+plt.xlabel("Time (seconds)")
+plt.ylabel("Speed (pulses/sec)")
+plt.title(f"PID Step Response (Kp={Kp}, Ki={Ki}, Kd={Kd})")
+plt.grid(True)
+plt.legend()
+
+plt.xlim(0, TEST_DURATION)
+
+plt.savefig(plot_file, dpi=300)
+print(f"CSV saved: {filename}")
+print(f"Graph saved: {plot_file}")
+
+plt.show()
